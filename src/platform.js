@@ -18,8 +18,7 @@ class MultiHomeProxyPlatform {
   configureAccessory() {}
   startHomes() {
     const hap = this.api.hap;
-    const storage = require('path').join(this.api.user.storagePath(), 'homebridge-multiverse-persist');
-    hap.HAPStorage.setCustomStoragePath(storage);
+
     for (const cfg of (this.config.homes || [])) {
       new ProxyHome(this.log, this.api, cfg, this.realAccessories).start();
     }
