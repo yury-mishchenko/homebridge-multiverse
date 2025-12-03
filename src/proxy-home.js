@@ -5,6 +5,15 @@ const {
   copyAccessoryInfo
 } = require('./proxy-bind');
 
+function isValidUUID(uuid) {
+  return (
+    typeof uuid === 'string' &&
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+      uuid
+    )
+  );
+}
+
 class ProxyHome {
   constructor(log, api, cfg, realAccessories) {
     this.log = log;
@@ -57,11 +66,10 @@ class ProxyHome {
         copyAccessoryInfo(realInfo, stubInfo);
       }
 
-      // All other services
+      // Other services
       for (const realService of realAcc.services) {
         if (realService.UUID === hap.Service.AccessoryInformation.UUID) continue;
 
-        // create a service of same type
         const stubService = new hap.Service(
           realService.displayName,
           realService.UUID,
@@ -74,26 +82,56 @@ class ProxyHome {
 
           // try to reuse an existing characteristic of same UUID
           try {
-            stubChar = stubService.getCharacteristic(realChar.UUID);
+            if (isValidUUID(realChar.UUID)) {
+              stubChar = stubService.getCharacteristic(realChar.UUID);
+            }
           } catch {
             stubChar = undefined;
           }
 
-          // if none, add a new one using the same constructor
+          // if not present, try to add via constructor
           if (!stubChar) {
+            const ctor = realChar.constructor;
+            const ctorUUID = ctor && ctor.UUID;
+
+            if (!ctorUUID || !isValidUUID(ctorUUID)) {
+              this.log(
+                `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – invalid or missing constructor UUID`
+              );
+              continue;
+            }
+
             try {
-              stubChar = stubService.addCharacteristic(realChar.constructor);
+              stubChar = stubService.addCharacteristic(ctor);
             } catch (e) {
               this.log(
-                `[Multiverse] Skipping characteristic '${realChar.displayName}' (${realChar.UUID}) on service '${realService.displayName}': ${e && e.message ? e.message : e}`
+                `[Multiverse] Skipping characteristic '${realChar.displayName}' (${ctorUUID}) on service '${realService.displayName}': ${
+                  e && e.message ? e.message : e
+                }`
               );
               continue;
             }
           }
 
+          // At this point stubChar.UUID should be valid
+          if (!isValidUUID(stubChar.UUID)) {
+            this.log(
+              `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – stub has invalid UUID '${stubChar.UUID}'`
+            );
+            continue;
+          }
+
           // sync props and initial value
-          stubChar.setProps(realChar.props);
-          stubChar.updateValue(realChar.value);
+          try {
+            stubChar.setProps(realChar.props);
+            stubChar.updateValue(realChar.value);
+          } catch (e) {
+            this.log(
+              `[Multiverse] Warning: could not sync props/value for '${realChar.displayName}' on '${realService.displayName}': ${
+                e && e.message ? e.message : e
+              }`
+            );
+          }
 
           // wire proxy handlers
           bindProxyCharacteristic(this.log, stubChar, realChar);
