@@ -1,6 +1,5 @@
 'use strict';
 
-const path = require('path');
 const { ProxyHome } = require('./proxy-home');
 
 class MultiHomeProxyPlatform {
@@ -9,37 +8,55 @@ class MultiHomeProxyPlatform {
     this.config = config || {};
     this.api = api;
 
-    // will hold ALL real accessories
     this.realAccessories = [];
 
     this.log('[Multiverse] Initializing homebridge-multiverse platform…');
 
-    // Hook dynamically registered platform accessories (optional bonus)
-    const origRegister = this.api.registerPlatformAccessories.bind(this.api);
-    this.api.registerPlatformAccessories = (plugin, platform, accessories) => {
-      this.log(
-        `[Multiverse] registerPlatformAccessories: got ${accessories.length} new accessory(ies) from ${plugin}/${platform}`
-      );
-      this.realAccessories.push(...accessories);
-      origRegister(plugin, platform, accessories);
-    };
+    const hap = this.api.hap;
+
+    // 🔹 Hook Bridge.addBridgedAccessory ONCE globally
+    if (!hap.Bridge.prototype.__multiversePatched) {
+      const origAdd = hap.Bridge.prototype.addBridgedAccessory;
+      const self = this;
+
+      hap.Bridge.prototype.addBridgedAccessory = function (accessory) {
+        // "this" is the Bridge instance
+        try {
+          // Ignore our own multiverse bridges
+          if (!this.__multiverseBridge) {
+            self.realAccessories.push(accessory);
+            self.log(
+              `[Multiverse] Captured accessory '${accessory.displayName}' from bridge '${this.displayName}'`
+            );
+          }
+        } catch (e) {
+          self.log(
+            `[Multiverse] Error capturing accessory: ${
+              e && e.message ? e.message : e
+            }`
+          );
+        }
+
+        return origAdd.call(this, accessory);
+      };
+
+      hap.Bridge.prototype.__multiversePatched = true;
+      this.log('[Multiverse] Patched hap.Bridge.addBridgedAccessory');
+    }
 
     this.api.on('didFinishLaunching', () => {
-  // At this point all platforms have called registerPlatformAccessories,
-  // so realAccessories contains everything we saw being registered.
-  const count = this.realAccessories.length;
+      const count = this.realAccessories.length;
 
-  this.log(
-    `[Multiverse] didFinishLaunching – tracking ${count} accessory(ies) from dynamic platforms`
-  );
+      this.log(
+        `[Multiverse] didFinishLaunching – captured ${count} accessory(ies) from main bridge`
+      );
 
-  this.startHomes();
+      this.startHomes();
     });
-
   }
 
-  configureAccessory(accessory) {
-    // not using cached accessories directly; we use api.accessories in didFinishLaunching
+  configureAccessory() {
+    // not using cached accessories; everything comes via the Bridge hook
   }
 
   startHomes() {
@@ -58,7 +75,12 @@ class MultiHomeProxyPlatform {
       this.log(
         `[Multiverse] Initializing home '${homeCfg.name}' on port ${homeCfg.port} (username ${homeCfg.username})`
       );
-      const home = new ProxyHome(this.log, this.api, homeCfg, this.realAccessories);
+      const home = new ProxyHome(
+        this.log,
+        this.api,
+        homeCfg,
+        this.realAccessories
+      );
       home.start();
     }
   }
