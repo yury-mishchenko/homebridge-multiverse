@@ -25,16 +25,17 @@ class MultiHomeProxyPlatform {
     };
 
     this.api.on('didFinishLaunching', () => {
-      // At this point Homebridge has loaded everything.
-      // Grab ALL known accessories from Homebridge.
-      this.realAccessories = this.api.accessories.slice();
+  // At this point all platforms have called registerPlatformAccessories,
+  // so realAccessories contains everything we saw being registered.
+  const count = this.realAccessories.length;
 
-      this.log(
-        `[Multiverse] didFinishLaunching – found ${this.realAccessories.length} accessory(ies) in main bridge`
-      );
+  this.log(
+    `[Multiverse] didFinishLaunching – tracking ${count} accessory(ies) from dynamic platforms`
+  );
 
-      this.startHomes();
+  this.startHomes();
     });
+
   }
 
   configureAccessory(accessory) {
