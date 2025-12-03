@@ -1,0 +1,57 @@
+{
+  "pluginAlias": "homebridge-multiverse",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Homebridge Multiverse",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "platform": { "type": "string", "const": "homebridge-multiverse" },
+      "homes": {
+        "title": "Homes (Parallel HomeKit Bridges)",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "title": "Home Name", "type": "string" },
+            "username": {
+              "title": "Username (MAC-like)",
+              "type": "string",
+              "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){5}$"
+            },
+            "port": {
+              "title": "Port",
+              "type": "integer",
+              "minimum": 1025,
+              "maximum": 65535
+            },
+            "pincode": {
+              "title": "PIN Code",
+              "type": "string",
+              "default": "031-45-154",
+              "pattern": "^[0-9]{3}-[0-9]{2}-[0-9]{3}$"
+            }
+          },
+          "required": ["name","username","port"]
+        }
+      }
+    },
+    "required": ["homes"]
+  },
+  "form": [
+    {
+      "type": "array",
+      "key": "homes",
+      "title": "Homes",
+      "add": "Add Home",
+      "items": [
+        { "type": "section", "items": [
+          "homes[].name",
+          "homes[].username",
+          "homes[].port",
+          "homes[].pincode"
+        ] }
+      ]
+    }
+  ]
+}

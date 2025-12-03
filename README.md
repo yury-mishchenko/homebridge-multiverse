@@ -1,0 +1,3 @@
+# Homebridge Multiverse
+
+Expose multiple parallel HomeKit bridges...
