@@ -1,10 +1,9 @@
 'use strict';
 
-const { hap } = require('homebridge');
-const path = require('path');
-const fs = require('fs');
-
-const { bindProxyCharacteristic, copyAccessoryInfo } = require('./proxy-bind');
+const {
+  bindProxyCharacteristic,
+  copyAccessoryInfo
+} = require('./proxy-bind');
 
 function isValidUUID(uuid) {
   return (
@@ -16,56 +15,44 @@ function isValidUUID(uuid) {
 }
 
 class ProxyHome {
-  constructor(log, config, realAccessories, storagePath) {
+  constructor(log, api, cfg, realAccessories) {
     this.log = log;
-    this.name = config.name;
-    this.username = config.username;
-    this.port = config.port;
-    this.pincode = config.pincode || '031-45-154';
+    this.api = api;
+    this.cfg = cfg;
     this.realAccessories = realAccessories;
 
-    // HAP Bridge for this home
+    const hap = this.api.hap;
+
     this.bridge = new hap.Bridge(
-      `Multiverse ${this.name}`,
-      hap.uuid.generate(`multiverse-bridge-${this.name}`)
+      this.cfg.name,
+      hap.uuid.generate(`multiverse-bridge-${this.cfg.name}`)
     );
 
-    // Mark this bridge as our own to avoid recursive capture by the patched addBridgedAccessory
+    // mark this bridge so the platform hook doesn't capture its own accessories
     this.bridge.__multiverseBridge = true;
-
-    this.persistPath = path.join(storagePath, `multiverse-${this.name}`);
-    if (!fs.existsSync(this.persistPath)) {
-      fs.mkdirSync(this.persistPath);
-    }
   }
 
-  //
-  // Start & publish the bridge
-  //
   start() {
-    this.log.info(
-      `[Multiverse:${this.name}] Building stubs for ${this.realAccessories.length} accessories…`
-    );
     this.buildStubs();
 
     this.bridge.publish({
-      username: this.username,
-      pincode: this.pincode,
-      category: hap.Categories.BRIDGE,
-      port: this.port,
+      username: this.cfg.username,
+      pincode: this.cfg.pincode || '031-45-154',
+      category: this.api.hap.Categories.BRIDGE,
+      port: this.cfg.port
     });
 
-    this.log.info(
-      `[Multiverse:${this.name}] Published on port ${this.port} with username ${this.username}.`
+    this.log(
+      `[Multiverse] Home '${this.cfg.name}' running on port ${this.cfg.port}`
     );
   }
 
   //
-  // INITIAL STUB BUILD
+  // Initial stub build: mirror all accessories known at launch
   //
   buildStubs() {
-    for (const real of this.realAccessories) {
-      const stub = this.buildStub(real);
+    for (const realAcc of this.realAccessories) {
+      const stub = this.buildStub(realAcc);
       if (stub) {
         this.bridge.addBridgedAccessory(stub);
       }
@@ -73,69 +60,51 @@ class ProxyHome {
   }
 
   //
-  // DYNAMIC ADD: Add one new accessory after startup
+  // Dynamic add: mirror one new accessory after startup
   //
-  addStubFor(realAccessory) {
-    this.log.info(
-      `[Multiverse:${this.name}] Dynamically adding stub for ${realAccessory.displayName}`
+  addStubFor(realAcc) {
+    this.log(
+      `[Multiverse] [${this.cfg.name}] Dynamically adding stub for '${realAcc.displayName}'`
     );
-    const stub = this.buildStub(realAccessory);
+    const stub = this.buildStub(realAcc);
     if (stub) {
       this.bridge.addBridgedAccessory(stub);
     }
   }
 
   //
-  // CORE: Create a stub accessory for one real accessory
+  // Core: create a stub Accessory for one real accessory (without adding to bridge)
   //
-  buildStub(realAccessory) {
-    // Accessory UUID comes from HAP's uuid.generate, so it is safe by design
-    const stubUUID = hap.uuid.generate(
-      `multiverse/${this.name}/${realAccessory.UUID}`
-    );
-    const stub = new hap.Accessory(realAccessory.displayName, stubUUID);
+  buildStub(realAcc) {
+    const hap = this.api.hap;
 
-    // Copy AccessoryInformation including Name
-    const realInfo = realAccessory.getService(hap.Service.AccessoryInformation);
-    const stubInfo = stub.getService(hap.Service.AccessoryInformation);
+    const stubUUID = hap.uuid.generate(
+      `multiverse/${this.cfg.name}/${realAcc.UUID}`
+    );
+    const stub = new hap.Accessory(realAcc.displayName, stubUUID);
+
+    // --- AccessoryInformation ---
+    const realInfo = realAcc.getService(hap.Service.AccessoryInformation);
+    const stubInfo =
+      stub.getService(hap.Service.AccessoryInformation) ||
+      stub.addService(hap.Service.AccessoryInformation);
+
     if (realInfo && stubInfo) {
       copyAccessoryInfo(realInfo, stubInfo);
     }
 
-    // Copy primary service name if present
-    try {
-      const realPrimary = realAccessory.services.find((s) => s.isPrimaryService);
-      if (realPrimary && isValidUUID(realPrimary.UUID)) {
-        const stubPrimary = stub.services.find((s) => s.UUID === realPrimary.UUID);
-        if (stubPrimary) {
-          const realNameChar = realPrimary.getCharacteristic(
-            hap.Characteristic.Name
-          );
-          const stubNameChar = stubPrimary.getCharacteristic(
-            hap.Characteristic.Name
-          );
-          if (realNameChar && stubNameChar) {
-            stubNameChar.updateValue(realNameChar.value);
-          }
-        }
-      }
-    } catch (e) {
-      this.log.warn(
-        `[Multiverse:${this.name}] Could not sync primary service name for ${realAccessory.displayName}: ${e}`
-      );
-    }
-
-    // Clone all other services
-    for (const realService of realAccessory.services) {
-      // Skip AccessoryInformation
-      if (realService.UUID === hap.Service.AccessoryInformation.UUID) {
+    // --- Other services ---
+    for (const realService of realAcc.services) {
+      if (
+        realService.UUID === hap.Service.AccessoryInformation.UUID ||
+        !realService.UUID
+      ) {
         continue;
       }
 
-      // Service UUID must be valid or we skip it
       if (!isValidUUID(realService.UUID)) {
-        this.log.warn(
-          `[Multiverse:${this.name}] Skipping service with invalid UUID on ${realAccessory.displayName}: ${realService.displayName || realService.UUID}`
+        this.log(
+          `[Multiverse] Skipping service '${realService.displayName}' on '${realAcc.displayName}' – invalid UUID '${realService.UUID}'`
         );
         continue;
       }
@@ -147,35 +116,26 @@ class ProxyHome {
       );
       stub.addService(stubService);
 
-      // For each characteristic
       for (const realChar of realService.characteristics) {
-        // UUID sanity check for characteristic
-        if (!isValidUUID(realChar.UUID)) {
-          this.log.warn(
-            `[Multiverse:${this.name}] Skipping characteristic with invalid UUID on ${realAccessory.displayName}: ${realChar.displayName || realChar.UUID}`
-          );
-          continue;
-        }
-
         let stubChar;
 
-        // Try existing char via UUID
+        // Try to reuse an existing characteristic with same UUID
         try {
-          stubChar = stubService.getCharacteristic(realChar.UUID);
+          if (isValidUUID(realChar.UUID)) {
+            stubChar = stubService.getCharacteristic(realChar.UUID);
+          }
         } catch {
-          stubChar = null;
+          stubChar = undefined;
         }
 
-        // Add new characteristic if needed
+        // If not present, try to add via constructor
         if (!stubChar) {
           const ctor = realChar.constructor;
-          const ctorUUID =
-            ctor && typeof ctor.UUID === 'string' ? ctor.UUID : undefined;
+          const ctorUUID = ctor && ctor.UUID;
 
-          // Require constructor UUID to match the real characteristic UUID and be valid
-          if (!ctorUUID || ctorUUID !== realChar.UUID || !isValidUUID(ctorUUID)) {
-            this.log.warn(
-              `[Multiverse:${this.name}] Skipping vendor/custom characteristic ${realChar.displayName || realChar.UUID} on ${realAccessory.displayName}`
+          if (!ctorUUID || !isValidUUID(ctorUUID)) {
+            this.log(
+              `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – invalid or missing constructor UUID`
             );
             continue;
           }
@@ -183,26 +143,83 @@ class ProxyHome {
           try {
             stubChar = stubService.addCharacteristic(ctor);
           } catch (e) {
-            this.log.warn(
-              `[Multiverse:${this.name}] Failed to add characteristic ${realChar.displayName || realChar.UUID} on ${realAccessory.displayName}: ${e}`
+            this.log(
+              `[Multiverse] Skipping characteristic '${realChar.displayName}' (${ctorUUID}) on service '${realService.displayName}': ${
+                e && e.message ? e.message : e
+              }`
             );
             continue;
           }
         }
 
-        // Copy metadata + initial value
+        // At this point stubChar.UUID should be valid
+        if (!isValidUUID(stubChar.UUID)) {
+          this.log(
+            `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – stub has invalid UUID '${stubChar.UUID}'`
+          );
+          continue;
+        }
+
+        // Sync props and initial value
         try {
           stubChar.setProps(realChar.props);
           stubChar.updateValue(realChar.value);
         } catch (e) {
-          this.log.warn(
-            `[Multiverse:${this.name}] Could not copy characteristic ${realChar.displayName || realChar.UUID} on ${realAccessory.displayName}: ${e}`
+          this.log(
+            `[Multiverse] Warning: could not sync props/value for '${realChar.displayName}' on '${realService.displayName}': ${
+              e && e.message ? e.message : e
+            }`
           );
         }
 
         // Wire proxy handlers
         bindProxyCharacteristic(this.log, stubChar, realChar);
       }
+    }
+
+    // --- Keep names identical to the real accessory ---
+
+    // 1. AccessoryInformation.Name (already mostly copied, but be explicit)
+    try {
+      if (realInfo && stubInfo) {
+        const realNameChar = realInfo.getCharacteristic(
+          hap.Characteristic.Name
+        );
+        const stubNameChar = stubInfo.getCharacteristic(
+          hap.Characteristic.Name
+        );
+        if (realNameChar && stubNameChar) {
+          stubNameChar.updateValue(realNameChar.value);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Primary service Name (this is what Home normally shows)
+    try {
+      const realPrimary =
+        typeof realAcc.getPrimaryService === 'function'
+          ? realAcc.getPrimaryService()
+          : null;
+      const stubPrimary =
+        typeof stub.getPrimaryService === 'function'
+          ? stub.getPrimaryService()
+          : null;
+
+      if (realPrimary && stubPrimary) {
+        const realNameChar = realPrimary.getCharacteristic(
+          hap.Characteristic.Name
+        );
+        const stubNameChar = stubPrimary.getCharacteristic(
+          hap.Characteristic.Name
+        );
+        if (realNameChar && stubNameChar) {
+          stubNameChar.updateValue(realNameChar.value);
+        }
+      }
+    } catch {
+      // ignore
     }
 
     return stub;
