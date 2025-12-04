@@ -209,4 +209,4 @@ class ProxyHome {
   }
 }
 
-module.exports = ProxyHome;
+module.exports = { ProxyHome };

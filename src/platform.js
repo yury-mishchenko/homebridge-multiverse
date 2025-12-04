@@ -67,7 +67,7 @@ class MultiHomeProxyPlatform {
   // START ALL HOMES
   //
   _startHomes() {
-    const ProxyHome = require('./proxy-home');
+    const {ProxyHome} = require('./proxy-home');
 
     for (const homeConfig of this.homesConfig) {
       const home = new ProxyHome(this.log, homeConfig, this.realAccessories, this.api.user.storagePath());
@@ -83,4 +83,4 @@ class MultiHomeProxyPlatform {
   }
 }
 
-module.exports = MultiHomeProxyPlatform;
+module.exports = { MultiHomeProxyPlatform };
