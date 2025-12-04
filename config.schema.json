@@ -6,14 +6,21 @@
   "schema": {
     "type": "object",
     "properties": {
-      "platform": { "type": "string", "const": "homebridge-multiverse" },
+      "platform": {
+        "type": "string",
+        "const": "homebridge-multiverse"
+      },
       "homes": {
         "title": "Homes (Parallel HomeKit Bridges)",
         "type": "array",
         "items": {
           "type": "object",
+          "required": ["name", "username", "port"],
           "properties": {
-            "name": { "title": "Home Name", "type": "string" },
+            "name": {
+              "title": "Home Name",
+              "type": "string"
+            },
             "username": {
               "title": "Username (MAC-like)",
               "type": "string",
@@ -26,31 +33,56 @@
               "maximum": 65535
             },
             "pincode": {
-              "title": "PIN Code",
+              "title": "PIN (optional, default 031-45-154)",
               "type": "string",
-              "default": "031-45-154",
               "pattern": "^[0-9]{3}-[0-9]{2}-[0-9]{3}$"
+            },
+            "includeAccessories": {
+              "title": "Include accessories (name/UUID contains)",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "If set, only accessories whose name or UUID contains one of these strings (case-insensitive) will be mirrored into this multiverse home."
+            },
+            "excludeAccessories": {
+              "title": "Exclude accessories (name/UUID contains)",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Accessories whose name or UUID contains one of these strings (case-insensitive) will not be mirrored into this multiverse home."
             }
-          },
-          "required": ["name","username","port"]
+          }
         }
       }
     },
-    "required": ["homes"]
+    "required": ["platform", "homes"]
   },
-  "form": [
+  "layout": [
+    {
+      "type": "section",
+      "items": [
+        "platform"
+      ]
+    },
     {
       "type": "array",
       "key": "homes",
       "title": "Homes",
       "add": "Add Home",
       "items": [
-        { "type": "section", "items": [
-          "homes[].name",
-          "homes[].username",
-          "homes[].port",
-          "homes[].pincode"
-        ] }
+        {
+          "type": "section",
+          "items": [
+            "homes[].name",
+            "homes[].username",
+            "homes[].port",
+            "homes[].pincode",
+            "homes[].includeAccessories",
+            "homes[].excludeAccessories"
+          ]
+        }
       ]
     }
   ]

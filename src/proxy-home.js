@@ -30,6 +30,14 @@ class ProxyHome {
 
     // mark this bridge so the platform hook doesn't capture its own accessories
     this.bridge.__multiverseBridge = true;
+
+    // Normalize filter patterns
+    this.includePatterns = Array.isArray(cfg.includeAccessories)
+      ? cfg.includeAccessories.filter(p => typeof p === 'string' && p.trim() !== '')
+      : [];
+    this.excludePatterns = Array.isArray(cfg.excludeAccessories)
+      ? cfg.excludeAccessories.filter(p => typeof p === 'string' && p.trim() !== '')
+      : [];
   }
 
   start() {
@@ -52,6 +60,9 @@ class ProxyHome {
   //
   buildStubs() {
     for (const realAcc of this.realAccessories) {
+      if (!this.shouldMirror(realAcc)) {
+        continue;
+      }
       const stub = this.buildStub(realAcc);
       if (stub) {
         this.bridge.addBridgedAccessory(stub);
@@ -63,13 +74,43 @@ class ProxyHome {
   // Dynamic add: mirror one new accessory after startup
   //
   addStubFor(realAcc) {
-    this.log(
-      `[Multiverse] [${this.cfg.name}] Dynamically adding stub for '${realAcc.displayName}'`
-    );
+    if (!this.shouldMirror(realAcc)) {
+      return;
+    }
     const stub = this.buildStub(realAcc);
     if (stub) {
       this.bridge.addBridgedAccessory(stub);
     }
+  }
+
+  //
+  // Decide whether an accessory should be mirrored into this universe
+  //
+  shouldMirror(realAcc) {
+    const name = (realAcc.displayName || '').toLowerCase();
+    const uuid = (realAcc.UUID || '').toLowerCase();
+
+    const matchesAny = patterns =>
+      patterns.some(pat => {
+        const p = pat.toLowerCase();
+        return name.includes(p) || uuid.includes(p);
+      });
+
+    // If include list is non-empty, require a match
+    if (this.includePatterns.length > 0) {
+      if (!matchesAny(this.includePatterns)) {
+        return false;
+      }
+    }
+
+    // If exclude list matches, skip
+    if (this.excludePatterns.length > 0) {
+      if (matchesAny(this.excludePatterns)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   //
@@ -133,7 +174,7 @@ class ProxyHome {
           const ctor = realChar.constructor;
           const ctorUUID = ctor && ctor.UUID;
 
-          if (!ctorUUID || !isValidUUID(ctorUUID)) {
+          if (!ctorUUID || !isValidUUID(ctorUUID) || ctorUUID !== realChar.UUID) {
             this.log(
               `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – invalid or missing constructor UUID`
             );
@@ -152,7 +193,6 @@ class ProxyHome {
           }
         }
 
-        // At this point stubChar.UUID should be valid
         if (!isValidUUID(stubChar.UUID)) {
           this.log(
             `[Multiverse] Skipping characteristic '${realChar.displayName}' on service '${realService.displayName}' – stub has invalid UUID '${stubChar.UUID}'`
@@ -160,7 +200,6 @@ class ProxyHome {
           continue;
         }
 
-        // Sync props and initial value
         try {
           stubChar.setProps(realChar.props);
           stubChar.updateValue(realChar.value);
@@ -172,14 +211,13 @@ class ProxyHome {
           );
         }
 
-        // Wire proxy handlers
         bindProxyCharacteristic(this.log, stubChar, realChar);
       }
     }
 
     // --- Keep names identical to the real accessory ---
 
-    // 1. AccessoryInformation.Name (already mostly copied, but be explicit)
+    // 1. AccessoryInformation.Name
     try {
       if (realInfo && stubInfo) {
         const realNameChar = realInfo.getCharacteristic(
@@ -196,7 +234,7 @@ class ProxyHome {
       // ignore
     }
 
-    // 2. Primary service Name (this is what Home normally shows)
+    // 2. Primary service Name (what Home normally shows)
     try {
       const realPrimary =
         typeof realAcc.getPrimaryService === 'function'
