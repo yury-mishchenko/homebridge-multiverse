@@ -25,8 +25,20 @@ function bindProxyCharacteristic(log, stubChar, realChar) {
   //
   // real -> HomeKit (CHANGE events)
   //
-  realChar.on('change', ({ newValue }) => {
+  realChar.on('change', change => {
     if (lock) return;
+
+    // Make this robust: some plugins use 'newValue', some might use 'value'.
+    let newValue;
+    if (change && Object.prototype.hasOwnProperty.call(change, 'newValue')) {
+      newValue = change.newValue;
+    } else if (change && Object.prototype.hasOwnProperty.call(change, 'value')) {
+      newValue = change.value;
+    } else {
+      // fall back to the characteristic's current value
+      newValue = realChar.value;
+    }
+
     lock = true;
     try {
       stubChar.updateValue(newValue);
