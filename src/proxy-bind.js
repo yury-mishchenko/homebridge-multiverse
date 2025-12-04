@@ -2,33 +2,62 @@
 
 function bindProxyCharacteristic(log, stubChar, realChar) {
   let lock = false;
+  const label =
+    realChar.displayName ||
+    stubChar.displayName ||
+    realChar.UUID ||
+    stubChar.UUID;
 
   //
   // HomeKit (stub bridge) -> real (SET)
   //
   stubChar.onSet(value => {
-    if (lock) return;
+    log(
+      `[Multiverse][DEBUG] onSet stub -> real '${label}' value=${safeJson(
+        value
+      )} lock=${lock}`
+    );
+
+    if (lock) {
+      log(
+        `[Multiverse][DEBUG] onSet stub -> real '${label}' ignored due to lock`
+      );
+      return;
+    }
+
     lock = true;
     try {
       // 1) Trigger the real plugin's normal "set" path so hardware is updated
       if (typeof realChar.setValue === 'function') {
+        log(
+          `[Multiverse][DEBUG] calling realChar.setValue for '${label}' with ${safeJson(
+            value
+          )}`
+        );
         realChar.setValue(value);
       } else if (typeof realChar.updateValue === 'function') {
-        // Some very old plugins might only use updateValue
+        log(
+          `[Multiverse][DEBUG] realChar.setValue missing, using updateValue for '${label}' with ${safeJson(
+            value
+          )}`
+        );
         realChar.updateValue(value);
       }
 
       // 2) Explicitly broadcast to all main bridge clients (iPad etc.)
-      //    This ensures HomeKit controllers paired to the *real* bridge
-      //    see the change even if the original request came via the stub bridge.
       if (typeof realChar.updateValue === 'function') {
+        log(
+          `[Multiverse][DEBUG] broadcasting realChar.updateValue for '${label}' with ${safeJson(
+            value
+          )}`
+        );
         realChar.updateValue(value);
       }
     } catch (e) {
       log(
-        `[Multiverse] Error setting value on real characteristic '${
-          realChar.displayName || realChar.UUID
-        }': ${e && e.message ? e.message : e}`
+        `[Multiverse] Error setting value on real characteristic '${label}': ${
+          e && e.message ? e.message : e
+        }`
       );
     } finally {
       lock = false;
@@ -39,7 +68,18 @@ function bindProxyCharacteristic(log, stubChar, realChar) {
   // real -> HomeKit (stub) (CHANGE events)
   //
   realChar.on('change', change => {
-    if (lock) return;
+    log(
+      `[Multiverse][DEBUG] change real -> stub '${label}' raw=${safeJson(
+        change
+      )} lock=${lock}`
+    );
+
+    if (lock) {
+      log(
+        `[Multiverse][DEBUG] change real -> stub '${label}' ignored due to lock`
+      );
+      return;
+    }
 
     // Make this robust: some plugins use 'newValue', some might use 'value'.
     let newValue;
@@ -52,14 +92,20 @@ function bindProxyCharacteristic(log, stubChar, realChar) {
       newValue = realChar.value;
     }
 
+    log(
+      `[Multiverse][DEBUG] change real -> stub '${label}' using newValue=${safeJson(
+        newValue
+      )}`
+    );
+
     lock = true;
     try {
       stubChar.updateValue(newValue);
     } catch (e) {
       log(
-        `[Multiverse] Error updating value on stub characteristic '${
-          stubChar.displayName || stubChar.UUID
-        }': ${e && e.message ? e.message : e}`
+        `[Multiverse] Error updating value on stub characteristic '${label}': ${
+          e && e.message ? e.message : e
+        }`
       );
     } finally {
       lock = false;
@@ -68,52 +114,64 @@ function bindProxyCharacteristic(log, stubChar, realChar) {
 
   //
   // HomeKit GET (stub) -> real GET
-  // Try to actively ask the real characteristic via getValue(callback).
-  // If that fails or is not available, fall back to the cached value.
   //
   stubChar.onGet(async () => {
+    log(`[Multiverse][DEBUG] onGet stub -> real '${label}'`);
+
     try {
       if (typeof realChar.getValue === 'function') {
-        return await new Promise(resolve => {
+        const value = await new Promise(resolve => {
           try {
-            realChar.getValue((err, value) => {
+            realChar.getValue((err, v) => {
               if (err) {
                 log(
-                  `[Multiverse] Error in getValue for '${
-                    realChar.displayName || realChar.UUID
-                  }': ${err}`
+                  `[Multiverse][DEBUG] getValue error for '${label}': ${err}`
                 );
                 resolve(realChar.value);
               } else {
-                resolve(value);
+                log(
+                  `[Multiverse][DEBUG] getValue result for '${label}' = ${safeJson(
+                    v
+                  )}`
+                );
+                resolve(v);
               }
             });
           } catch (e) {
             log(
-              `[Multiverse] Exception calling getValue for '${
-                realChar.displayName || realChar.UUID
-              }': ${e && e.message ? e.message : e}`
+              `[Multiverse][DEBUG] Exception calling getValue for '${label}': ${
+                e && e.message ? e.message : e
+              }`
             );
             resolve(realChar.value);
           }
         });
+
+        log(
+          `[Multiverse][DEBUG] onGet stub -> real '${label}' returning ${safeJson(
+            value
+          )}`
+        );
+        return value;
       }
     } catch (e) {
       log(
-        `[Multiverse] Error during onGet for '${
-          realChar.displayName || realChar.UUID
-        }': ${e && e.message ? e.message : e}`
+        `[Multiverse] Error during onGet for '${label}': ${
+          e && e.message ? e.message : e
+        }`
       );
     }
 
-    // Fallback: just return cached value
+    log(
+      `[Multiverse][DEBUG] onGet stub -> real '${label}' falling back to cached ${safeJson(
+        realChar.value
+      )}`
+    );
     return realChar.value;
   });
 }
 
 function copyAccessoryInfo(realInfo, stubInfo) {
-  // Only update characteristics that already exist in the stub.
-  // Avoid adding new ones to prevent duplicate-UUID errors.
   for (const char of realInfo.characteristics) {
     let stubChar;
     try {
@@ -123,7 +181,6 @@ function copyAccessoryInfo(realInfo, stubInfo) {
     }
 
     if (!stubChar) {
-      // we simply skip extra / vendor-specific chars on AccessoryInformation
       continue;
     }
 
@@ -133,6 +190,14 @@ function copyAccessoryInfo(realInfo, stubInfo) {
     } catch {
       // AccessoryInformation issues are non-fatal; ignore
     }
+  }
+}
+
+function safeJson(v) {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
   }
 }
 
