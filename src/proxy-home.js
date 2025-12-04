@@ -143,35 +143,49 @@ class ProxyHome {
         }
       }
 
-      // --- Ensure accessory names are correct for HomeKit UI ---
+      // --- Keep names identical to the real accessory ---
 
-      // 1. AccessoryInformation.Name
-      const stubInfoFinal = stub.getService(hap.Service.AccessoryInformation);
-      if (stubInfoFinal) {
-        try {
-          const nameChar = stubInfoFinal.getCharacteristic(
+      // 1. AccessoryInformation.Name (already mostly copied, but be explicit)
+      try {
+        if (realInfo && stubInfo) {
+          const realNameChar = realInfo.getCharacteristic(
             hap.Characteristic.Name
           );
-          nameChar.updateValue(realAcc.displayName);
-        } catch {
-          // ignore
+          const stubNameChar = stubInfo.getCharacteristic(
+            hap.Characteristic.Name
+          );
+          if (realNameChar && stubNameChar) {
+            stubNameChar.updateValue(realNameChar.value);
+          }
         }
+      } catch {
+        // ignore
       }
 
-      // 2. Primary service Name (what Home app usually shows)
-      const primaryService =
-        typeof stub.getPrimaryService === 'function'
-          ? stub.getPrimaryService()
-          : null;
-      if (primaryService) {
-        try {
-          const nameChar = primaryService.getCharacteristic(
+      // 2. Primary service Name (this is what Home normally shows)
+      try {
+        const realPrimary =
+          typeof realAcc.getPrimaryService === 'function'
+            ? realAcc.getPrimaryService()
+            : null;
+        const stubPrimary =
+          typeof stub.getPrimaryService === 'function'
+            ? stub.getPrimaryService()
+            : null;
+
+        if (realPrimary && stubPrimary) {
+          const realNameChar = realPrimary.getCharacteristic(
             hap.Characteristic.Name
           );
-          nameChar.updateValue(realAcc.displayName);
-        } catch {
-          // primary service has no Name characteristic; ignore
+          const stubNameChar = stubPrimary.getCharacteristic(
+            hap.Characteristic.Name
+          );
+          if (realNameChar && stubNameChar) {
+            stubNameChar.updateValue(realNameChar.value);
+          }
         }
+      } catch {
+        // ignore
       }
 
       this.bridge.addBridgedAccessory(stub);
