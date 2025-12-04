@@ -28,7 +28,7 @@ class ProxyHome {
       hap.uuid.generate(`multiverse-bridge-${this.cfg.name}`)
     );
 
-    // mark this bridge so we don't capture its own accessories
+    // mark this bridge so the platform hook doesn't capture its own accessories
     this.bridge.__multiverseBridge = true;
   }
 
@@ -56,7 +56,7 @@ class ProxyHome {
       );
       const stub = new hap.Accessory(realAcc.displayName, stubUUID);
 
-      // AccessoryInformation: reuse existing characteristics only
+      // --- AccessoryInformation ---
       const realInfo = realAcc.getService(hap.Service.AccessoryInformation);
       const stubInfo =
         stub.getService(hap.Service.AccessoryInformation) ||
@@ -66,9 +66,14 @@ class ProxyHome {
         copyAccessoryInfo(realInfo, stubInfo);
       }
 
-      // Other services
+      // --- Other services ---
       for (const realService of realAcc.services) {
-        if (realService.UUID === hap.Service.AccessoryInformation.UUID) continue;
+        if (
+          realService.UUID === hap.Service.AccessoryInformation.UUID ||
+          !realService.UUID
+        ) {
+          continue;
+        }
 
         const stubService = new hap.Service(
           realService.displayName,
@@ -80,7 +85,7 @@ class ProxyHome {
         for (const realChar of realService.characteristics) {
           let stubChar;
 
-          // try to reuse an existing characteristic of same UUID
+          // Try to reuse an existing characteristic with same UUID
           try {
             if (isValidUUID(realChar.UUID)) {
               stubChar = stubService.getCharacteristic(realChar.UUID);
@@ -89,7 +94,7 @@ class ProxyHome {
             stubChar = undefined;
           }
 
-          // if not present, try to add via constructor
+          // If not present, try to add via constructor
           if (!stubChar) {
             const ctor = realChar.constructor;
             const ctorUUID = ctor && ctor.UUID;
@@ -121,7 +126,7 @@ class ProxyHome {
             continue;
           }
 
-          // sync props and initial value
+          // Sync props and initial value
           try {
             stubChar.setProps(realChar.props);
             stubChar.updateValue(realChar.value);
@@ -133,8 +138,39 @@ class ProxyHome {
             );
           }
 
-          // wire proxy handlers
+          // Wire proxy handlers
           bindProxyCharacteristic(this.log, stubChar, realChar);
+        }
+      }
+
+      // --- Ensure accessory names are correct for HomeKit UI ---
+
+      // 1. AccessoryInformation.Name
+      const stubInfoFinal = stub.getService(hap.Service.AccessoryInformation);
+      if (stubInfoFinal) {
+        try {
+          const nameChar = stubInfoFinal.getCharacteristic(
+            hap.Characteristic.Name
+          );
+          nameChar.updateValue(realAcc.displayName);
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Primary service Name (what Home app usually shows)
+      const primaryService =
+        typeof stub.getPrimaryService === 'function'
+          ? stub.getPrimaryService()
+          : null;
+      if (primaryService) {
+        try {
+          const nameChar = primaryService.getCharacteristic(
+            hap.Characteristic.Name
+          );
+          nameChar.updateValue(realAcc.displayName);
+        } catch {
+          // primary service has no Name characteristic; ignore
         }
       }
 
