@@ -39,19 +39,13 @@
             },
             "includeAccessories": {
               "title": "Include accessories (name/UUID contains)",
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "If set, only accessories whose name or UUID contains one of these strings (case-insensitive) will be mirrored into this multiverse home."
+              "type": "string",
+              "description": "Comma-separated list. If set, only accessories whose name or UUID contains one of these strings (case-insensitive) will be mirrored into this multiverse home."
             },
             "excludeAccessories": {
               "title": "Exclude accessories (name/UUID contains)",
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Accessories whose name or UUID contains one of these strings (case-insensitive) will not be mirrored into this multiverse home."
+              "type": "string",
+              "description": "Comma-separated list. Accessories whose name or UUID contains one of these strings (case-insensitive) will not be mirrored into this multiverse home."
             }
           }
         }

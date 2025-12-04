@@ -31,13 +31,19 @@ class ProxyHome {
     // mark this bridge so the platform hook doesn't capture its own accessories
     this.bridge.__multiverseBridge = true;
 
-    // Normalize filter patterns
-    this.includePatterns = Array.isArray(cfg.includeAccessories)
-      ? cfg.includeAccessories.filter(p => typeof p === 'string' && p.trim() !== '')
-      : [];
-    this.excludePatterns = Array.isArray(cfg.excludeAccessories)
-      ? cfg.excludeAccessories.filter(p => typeof p === 'string' && p.trim() !== '')
-      : [];
+    // Normalize filter patterns (comma-separated strings)
+    const includeRaw = typeof cfg.includeAccessories === 'string' ? cfg.includeAccessories : '';
+    const excludeRaw = typeof cfg.excludeAccessories === 'string' ? cfg.excludeAccessories : '';
+
+    this.includePatterns = includeRaw
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    this.excludePatterns = excludeRaw
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
   }
 
   start() {
